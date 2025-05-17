@@ -1,0 +1,58 @@
+name: Run Twitter Bot with Selenium
+
+on:
+  schedule:
+    - cron: '0 7,13,19 * * *'  # Run at 7am, 1pm, and 7pm UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  run-twitter-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install Chrome and ChromeDriver
+      run: |
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
+        wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION" -O chromedriver_version
+        CHROMEDRIVER_VERSION=$(cat chromedriver_version)
+        wget -q "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip" -O chromedriver.zip
+        unzip chromedriver.zip
+        sudo mv chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install selenium requests-oauthlib schedule
+        
+    - name: Run Twitter bot
+      env:
+        TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+        TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+        TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+        TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+        CHATGPT_EMAIL: ${{ secrets.CHATGPT_EMAIL }}
+        CHATGPT_PASSWORD: ${{ secrets.CHATGPT_PASSWORD }}
+        LOG_FILE: 'true'
+        GITHUB_ACTIONS: 'true'
+        POST_IMMEDIATELY: 'true'  # Post a tweet immediately for testing
+      run: python twitter_bot.py
+      
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: twitter-bot-logs
+        path: twitter_bot.log
