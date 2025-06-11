@@ -1,140 +1,38 @@
-name: Run Twitter Bot with Selenium
+name: 🤖 Twitter Bot HF Scheduler
 
 on:
   schedule:
-    # This cron job runs at 7 AM, 1 PM, and 7 PM UTC every day.
-    # Adjust this to your desired schedule.
-    # For testing, you might want to make it more frequent (e.g., '*/15 * * * *' for every 15 minutes)
-    # but be mindful of API rate limits if using a free tier.
-    - cron: '0 7,13,19 * * *'
-  workflow_dispatch: # Allows you to manually trigger the workflow from the GitHub UI
+    - cron: '0 7,13,19 * * *'  # Runs at 07:00, 13:00, and 19:00 UTC
+  workflow_dispatch:           # Allows manual triggering from GitHub UI
 
 jobs:
   run-twitter-bot:
-    runs-on: ubuntu-latest # Uses the latest Ubuntu runner provided by GitHub
+    runs-on: ubuntu-latest
+    env:
+      TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+      TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+      TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+      TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+      HF: ${{ secrets.HF }}
+      TWEET_STYLES: ${{ secrets.TWEET_STYLES }}
+      TOPICS: ${{ secrets.TOPICS }}
+      SCHEDULE_TIMES: '["07:00", "13:00", "19:00"]'
+      RUN_DURATION_HOURS: '0.1'  # Run for ~6 minutes each time
+      POST_IMMEDIATELY: 'true'
 
     steps:
-      - name: Checkout repository
-        # This action checks out your repository code so your workflow can access it.
-        uses: actions/checkout@v4 # Recommended to use @v4 for better security and features
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        # This action sets up the Python environment.
-        uses: actions/setup-python@v5 # Recommended to use @v5 for better security and features
+      - name: 🐍 Set Up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Ensure this matches your project's Python version
+          python-version: '3.11'
 
-      - name: Install system dependencies (jq for ChromeDriver lookup)
-        # jq is needed for parsing JSON to find the correct ChromeDriver download URL.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: Install Chrome and ChromeDriver
-        # This step installs Google Chrome and a compatible ChromeDriver.
-        # It dynamically determines the Chrome version to fetch the correct ChromeDriver
-        # and includes robust error handling for finding the download URL.
-        run: |
-          # Add Google Chrome repository key
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg
-          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list > /dev/null
-
-          # Update apt packages and install Google Chrome
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-
-          # Get Chrome major version
-          CHROME_MAJOR_VERSION=$(google-chrome --version | sed -E 's/Google Chrome ([0-9]+)\..*/\1/')
-          echo "Detected Chrome major version: $CHROME_MAJOR_VERSION"
-
-          # Get ChromeDriver download URL using the Chrome for Testing API
-          CHROMEDRIVER_URL_BASE="https://googlechromelabs.github.io/chrome-for-testing"
-          LATEST_VERSIONS_JSON=$(curl -s "${CHROMEDRIVER_URL_BASE}/last-known-good-versions-with-downloads.json")
-
-          if [ -z "$LATEST_VERSIONS_JSON" ]; then
-            echo "Error: Failed to fetch ChromeDriver versions JSON. Please check the URL or network connectivity."
-            exit 1
-          fi
-
-          # Attempt to find a ChromeDriver for the detected Chrome major version
-          # Prioritize exact match, then fall back to a "stable" or "latest" if available
-          DOWNLOAD_URL=$(echo "$LATEST_VERSIONS_JSON" | jq -r --arg ver "$CHROME_MAJOR_VERSION" '
-            .versions[] | select(.version | startswith($ver + ".")) |
-            .downloads.chromedriver[] | select(.platform == "linux64") |
-            .url
-          ')
-
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-            echo "Warning: No exact match ChromeDriver found for Chrome $CHROME_MAJOR_VERSION."
-            echo "Attempting to find the latest stable ChromeDriver."
-            # Fallback to the latest stable version if specific version isn't found
-            DOWNLOAD_URL=$(echo "$LATEST_VERSIONS_JSON" | jq -r '
-              .channels.Stable.downloads.chromedriver[] | select(.platform == "linux64") | .url
-            ')
-
-            if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-              echo "Error: Could not find any suitable ChromeDriver download URL."
-              exit 1
-            fi
-          fi
-
-          echo "Downloading ChromeDriver from: $DOWNLOAD_URL"
-          wget -q "$DOWNLOAD_URL" -O chromedriver.zip
-          unzip chromedriver.zip -d /tmp/chromedriver_extracted
-
-          # The extracted directory name can vary (e.g., chromedriver-linux64 or just chromedriver)
-          # Find the actual chromedriver executable within the extracted path
-          CHROMEDRIVER_EXEC_PATH=$(find /tmp/chromedriver_extracted -name "chromedriver" -type f)
-
-          if [ -z "$CHROMEDRIVER_EXEC_PATH" ]; then
-            echo "Error: Could not find 'chromedriver' executable in the unzipped package."
-            exit 1
-          fi
-
-          sudo mv "$CHROMEDRIVER_EXEC_PATH" /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
-
-          echo "ChromeDriver installed at: /usr/local/bin/chromedriver"
-          /usr/local/bin/chromedriver --version
-
-      - name: Install Python dependencies
-        # Installs necessary Python libraries.
-        # Ensure you have a requirements.txt file in your repository root
-        # listing all your Python dependencies (e.g., selenium, requests-oauthlib, schedule).
+      - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # Optionally, if you don't use a requirements.txt, you could install directly:
-          # pip install selenium requests-oauthlib schedule
-          # You might also need: pip install sentence-transformers torch pyyaml (if your script uses them)
+          pip install requests schedule requests_oauthlib
 
-      - name: Run Twitter bot
-        # Executes your Python script.
-        # Ensure all necessary secrets are configured in your GitHub repository settings
-        # under 'Settings > Secrets and variables > Actions'.
-        env:
-          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
-          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
-          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
-          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-          CHATGPT_EMAIL: ${{ secrets.CHATGPT_EMAIL }}
-          CHATGPT_PASSWORD: ${{ secrets.CHATGPT_PASSWORD }}
-          LOG_FILE: 'true' # Enables logging to twitter_bot.log within the container
-          GITHUB_ACTIONS: 'true' # Your Python script uses this to apply specific Chrome options
-          POST_IMMEDIATELY: 'true' # Set to 'true' for immediate testing, 'false' for purely scheduled behavior
-          # Optional: Define your topics or schedule times as environment variables if you prefer.
-          # TOPICS: '["ETL (Extract, Transform, Load) Processes", "Data Streaming Technologies"]'
-          # SCHEDULE_TIMES: '["07:00", "13:00", "19:00"]'
-          # RUN_DURATION_HOURS: '5' # How long run_scheduled_tweets_once should run (in hours)
-        run: python twitter_bot.py
-
-      - name: Upload logs
-        # This step uploads the 'twitter_bot.log' file as a workflow artifact.
-        # 'if: always()' ensures logs are uploaded even if previous steps fail.
-        # This uses the corrected `actions/upload-artifact@v4`.
-        if: always()
-        uses: actions/upload-artifact@v4 # CORRECTED: Using the latest stable version
-        with:
-          name: twitter-bot-logs
-          path: twitter_bot.log
-          retention-days: 7 # Optional: How long to keep the artifact (default is 90 days)
+      - name: 🚀 Run Twitter Bot
+        run: python twitter_bot_hf.py
