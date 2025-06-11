@@ -43,16 +43,24 @@ class TwitterBot:
         
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
-        # Remove common AI response patterns
-        text = re.sub(r'^(Here\'s|Here is)', '', text, flags=re.IGNORECASE)
+        # Remove common AI response patterns that might appear at the start
+        text = re.sub(r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:)', '', text, flags=re.IGNORECASE).strip()
         text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
         text = text.strip('"\' \n')
         
-        # Ensure proper hashtag formatting
-        if '#' not in text and random.random() < 0.3:  # 30% chance to add relevant hashtag
-            hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData', '#Python', '#SQL']
+        # Ensure proper hashtag formatting - add one if missing for 30% of tweets
+        if '#' not in text and random.random() < 0.3:
+            hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData', '#Python', '#SQL', '#TechTips', '#AI', '#DeepLearning', '#DataAnalytics']
             text += f" {random.choice(hashtags)}"
             
+        # Ensure tweet is within Twitter's character limit (280 characters)
+        if len(text) > 280:
+            # Try to trim gracefully, prioritizing complete sentences if possible
+            text = text[:277] + "..." # Truncate and add ellipsis
+            last_space = text.rfind(' ')
+            if last_space > 200: # Only trim at word boundary if it's not too early
+                text = text[:last_space] + "..."
+
         return text
 
     def generate_tweet_with_huggingface(self, topic):
@@ -71,32 +79,40 @@ class TwitterBot:
             "Explain {topic} in one sentence that a 5-year-old could understand.",
             "Hot take: {topic} is overrated/underrated because...",
             "If you could only know one thing about {topic}, it should be this:",
-            "Thread: Why {topic} matters more than you think (1/3)",
             "Quick reminder: {topic} doesn't have to be complicated. Here's how:",
             "Unpopular opinion about {topic}:",
             "The best free resource for learning {topic} is...",
-            "Real talk: {topic} changed how I think about data. Here's why:"
+            "Real talk: {topic} changed how I think about data. Here's why:",
+            "Tell me something surprising about {topic}.",
+            "What's a common misconception about {topic}?",
+            "How can {topic} be applied in everyday life?",
+            "The future of {topic} is...",
+            "If you're struggling with {topic}, try this simple approach:"
         ]
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Enhanced prompt for better tweet generation
-        prompt = f"""Write a engaging Twitter post about: {selected_style}
+        # Enhanced prompt for better tweet generation and to guide DeepSeek-R1-0528
+        prompt = f"""You are a helpful and engaging data professional tweeting about data science, analytics, and tech.
+Today's topic: {topic}.
 
-Requirements:
-- Under 280 characters
-- Conversational and authentic tone
-- No quotation marks around the response
-- Include actionable insight or question
-- Sound like a human data professional, not an AI
+Write a short, engaging Twitter post (under 280 characters) that fulfills this request: "{selected_style}"
+
+Requirements for the tweet:
+- Conversational and authentic tone.
+- Do NOT include quotation marks around the entire response.
+- Include an actionable insight, a compelling question, or a thought-provoking statement.
+- Sound like a human data professional, not an AI.
+- Avoid phrases like "As an AI..." or similar.
+- No introduction like "Here is a tweet..."
 
 Tweet:"""
 
         payload = {
             "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 80,
-                "temperature": 0.8,
+                "max_new_tokens": 120, # Increased slightly to allow more flexibility, but cleaning will truncate
+                "temperature": 0.6,    # Adjusted based on DeepSeek's recommendation
                 "top_p": 0.9,
                 "do_sample": True,
                 "repetition_penalty": 1.1
@@ -106,12 +122,13 @@ Tweet:"""
         logging.info(f"🧠 Generating tweet for topic: {topic}")
 
         try:
-            model_url = "https://api-inference.huggingface.co/models/gpt2"
+            # CORRECTED: Using the full model ID for DeepSeek-R1-0528
+            model_url = "https://api-inference.huggingface.co/models/deepseek-ai/DeepSeek-R1-0528"
             response = requests.post(
                 model_url,
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=60 # Increased timeout for larger models
             )
 
             response.raise_for_status()
@@ -119,15 +136,26 @@ Tweet:"""
 
             if isinstance(result, list) and result:
                 raw_tweet = result[0]['generated_text']
-                # Extract only the tweet part after "Tweet:"
-                if "Tweet:" in raw_tweet:
-                    tweet = raw_tweet.split("Tweet:")[-1].strip()
-                else:
-                    tweet = raw_tweet.strip()
                 
+                # The model might repeat the prompt or add conversational AI elements.
+                # Find the actual tweet part, which usually follows the "Tweet:" instruction.
+                if "Tweet:" in raw_tweet:
+                    tweet = raw_tweet.split("Tweet:", 1)[-1].strip()
+                elif "tweet:" in raw_tweet.lower():
+                    tweet = raw_tweet.split("tweet:", 1)[-1].strip()
+                else:
+                    # If "Tweet:" isn't found, try to extract based on the end of the prompt
+                    # or just use the whole thing and let clean_tweet_text handle it.
+                    prompt_end_index = raw_tweet.find("Tweet:")
+                    if prompt_end_index != -1:
+                        tweet = raw_tweet[prompt_end_index + len("Tweet:"):].strip()
+                    else:
+                        tweet = raw_tweet.strip()
+
+
                 tweet = self.clean_tweet_text(tweet)
                 
-                # Check for duplicates
+                # Check for duplicates and reasonable length after cleaning
                 if tweet in self.posted_tweets:
                     logging.warning("⚠️ Duplicate tweet detected, regenerating...")
                     return self.generate_fallback_tweet(topic)
@@ -136,7 +164,8 @@ Tweet:"""
                     logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
                     return tweet
                 else:
-                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars). Using fallback.")
+                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars) or too short. Using fallback.")
+                    logging.warning(f"Problematic tweet: '{tweet}'")
                     return self.generate_fallback_tweet(topic)
             else:
                 logging.error(f"❌ Unexpected Hugging Face response: {result}")
@@ -144,6 +173,8 @@ Tweet:"""
                 
         except requests.exceptions.RequestException as e:
             logging.error(f"❌ Hugging Face API request failed: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logging.error(f"Response content: {e.response.text}")
             return self.generate_fallback_tweet(topic)
         except Exception as e:
             logging.error(f"❌ Unexpected error in tweet generation: {e}")
@@ -156,10 +187,14 @@ Tweet:"""
             f"Quick question: What's the biggest challenge you face with {topic}?",
             f"Reminder: {topic} doesn't have to be overwhelming. Start small, build up.",
             f"Working on {topic} today. Any tips or resources you'd recommend?",
-            f"The more I learn about {topic}, the more fascinating it becomes."
+            f"The more I learn about {topic}, the more fascinating it becomes.",
+            f"Just shared a thought on {topic}. What's your take?",
+            f"Exploring {topic} today. Any interesting insights you've found?"
         ]
         
         tweet = random.choice(fallback_templates)
+        # Ensure fallback tweet also goes through cleaning to add hashtags if desired
+        tweet = self.clean_tweet_text(tweet)
         logging.info(f"🔄 Using fallback tweet: {tweet}")
         return tweet
 
@@ -212,7 +247,13 @@ Tweet:"""
             "Data Science Project Organization",
             "Statistical Analysis in Business",
             "Data Storytelling Techniques",
-            "Automated Reporting Systems"
+            "Automated Reporting Systems",
+            "Big Data Technologies (Spark, Hadoop)",
+            "Data Governance and Ethics",
+            "Time Series Analysis",
+            "Natural Language Processing (NLP)",
+            "Computer Vision Basics",
+            "Deployment of Machine Learning Models"
         ]
 
         topic = random.choice(topics)
