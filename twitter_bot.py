@@ -107,7 +107,7 @@ Tweet:"""
 
         try:
             response = requests.post(
-                "https://api-inference.huggingface.co/models/deepseek-ai/deepseek-llm-7b-instruct",
+                ""https://api-inference.huggingface.co/models/deepseek-ai/DeepSeek-R1-0528",
                 headers=headers,
                 json=payload,
                 timeout=30
