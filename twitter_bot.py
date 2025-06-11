@@ -20,14 +20,7 @@ class TwitterBot:
     def __init__(self):
         self.oauth = None
         self.setup_oauth()
-        self.posted_tweets = set()
-        # Available models to try (in order of preference)
-        self.models = [
-            "microsoft/DialoGPT-medium",
-            "facebook/blenderbot-400M-distill",
-            "gpt2-medium",
-            "distilgpt2"
-        ]
+        self.posted_tweets = set()  # Track posted content to avoid duplicates
         
     def setup_oauth(self):
         """Setup Twitter OAuth session"""
@@ -51,158 +44,119 @@ class TwitterBot:
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
         # Remove common AI response patterns
-        text = re.sub(r'^(Here\'s|Here is|Sure,|Certainly)', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'^(Here\'s|Here is)', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
         text = text.strip('"\' \n')
         
-        # Remove model artifacts
-        text = re.sub(r'<\|.*?\|>', '', text)  # Remove special tokens
-        text = re.sub(r'^Tweet:\s*', '', text, flags=re.IGNORECASE)
-        
         # Ensure proper hashtag formatting
-        if '#' not in text and random.random() < 0.3:
+        if '#' not in text and random.random() < 0.3:  # 30% chance to add relevant hashtag
             hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData', '#Python', '#SQL']
             text += f" {random.choice(hashtags)}"
             
-        return text.strip()
+        return text
 
     def generate_tweet_with_huggingface(self, topic):
-        """Generate tweet using Hugging Face models with fallback"""
-        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HF")
+        """Generate tweet using Hugging Face DeepSeek model with better prompting"""
+        hf_token = os.environ.get("HF")
         if not hf_token:
-            logging.error("❌ Hugging Face API token not found.")
-            return self.generate_fallback_tweet(topic)
+            logging.error("❌ Hugging Face API token not found in environment.")
+            return None
 
         headers = {"Authorization": f"Bearer {hf_token}"}
 
-        # Tweet prompts for better generation
-        prompts = [
-            f"Write a short professional tweet about {topic} for data professionals:",
-            f"Share a quick tip about {topic} in under 280 characters:",
-            f"What's important to know about {topic}?",
-            f"Quick insight about {topic}:",
-            f"Data professionals, here's why {topic} matters:"
+        tweet_styles_str = os.environ.get('TWEET_STYLES')
+        tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
+            "Share a practical tip about {topic} that beginners can apply immediately.",
+            "What's the most common mistake people make with {topic}? Share the solution.",
+            "Explain {topic} in one sentence that a 5-year-old could understand.",
+            "Hot take: {topic} is overrated/underrated because...",
+            "If you could only know one thing about {topic}, it should be this:",
+            "Thread: Why {topic} matters more than you think (1/3)",
+            "Quick reminder: {topic} doesn't have to be complicated. Here's how:",
+            "Unpopular opinion about {topic}:",
+            "The best free resource for learning {topic} is...",
+            "Real talk: {topic} changed how I think about data. Here's why:"
         ]
 
-        prompt = random.choice(prompts)
+        selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Try different models until one works
-        for model_name in self.models:
-            try:
-                logging.info(f"🧠 Trying model: {model_name} for topic: {topic}")
-                
-                # Payload for text generation
-                payload = {
-                    "inputs": prompt,
-                    "parameters": {
-                        "max_new_tokens": 60,
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                        "do_sample": True,
-                        "repetition_penalty": 1.2,
-                        "return_full_text": False
-                    }
-                }
+        # Enhanced prompt for better tweet generation
+        prompt = f"""Write a engaging Twitter post about: {selected_style}
 
-                model_url = f"https://api-inference.huggingface.co/models/{model_name}"
-                response = requests.post(
-                    model_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                )
+Requirements:
+- Under 280 characters
+- Conversational and authentic tone
+- No quotation marks around the response
+- Include actionable insight or question
+- Sound like a human data professional, not an AI
 
-                if response.status_code == 503:
-                    logging.warning(f"⚠️ Model {model_name} is loading, trying next...")
-                    continue
-                    
-                response.raise_for_status()
-                result = response.json()
+Tweet:"""
 
-                # Parse response based on model type
-                tweet_text = self.extract_tweet_from_response(result, prompt)
-                
-                if tweet_text:
-                    tweet_text = self.clean_tweet_text(tweet_text)
-                    
-                    # Validate tweet
-                    if self.is_valid_tweet(tweet_text):
-                        logging.info(f"✅ Generated tweet ({len(tweet_text)} chars): {tweet_text}")
-                        return tweet_text
-                    else:
-                        logging.warning(f"⚠️ Invalid tweet from {model_name}, trying next model...")
-                        continue
-                        
-            except requests.exceptions.RequestException as e:
-                logging.warning(f"⚠️ Request failed for {model_name}: {e}")
-                continue
-            except Exception as e:
-                logging.warning(f"⚠️ Error with {model_name}: {e}")
-                continue
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 80,
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "do_sample": True,
+                "repetition_penalty": 1.1
+            }
+        }
 
-        # If all models fail, use fallback
-        logging.warning("⚠️ All models failed, using fallback")
-        return self.generate_fallback_tweet(topic)
+        logging.info(f"🧠 Generating tweet for topic: {topic}")
 
-    def extract_tweet_from_response(self, result, original_prompt):
-        """Extract tweet text from different response formats"""
         try:
-            if isinstance(result, list) and result:
-                if 'generated_text' in result[0]:
-                    raw_text = result[0]['generated_text']
-                    # Remove the original prompt if it's included
-                    if original_prompt in raw_text:
-                        tweet = raw_text.split(original_prompt)[-1].strip()
-                    else:
-                        tweet = raw_text.strip()
-                    return tweet
-                elif 'text' in result[0]:
-                    return result[0]['text'].strip()
-            elif isinstance(result, dict):
-                if 'generated_text' in result:
-                    return result['generated_text'].strip()
-                elif 'text' in result:
-                    return result['text'].strip()
-        except (KeyError, IndexError, TypeError):
-            pass
-        
-        return None
+            model_url = "https://api-inference.huggingface.co/models/gpt2"
+            response = requests.post(
+                model_url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
 
-    def is_valid_tweet(self, tweet):
-        """Validate if the generated text is a good tweet"""
-        if not tweet or len(tweet) < 10 or len(tweet) > 280:
-            return False
-        
-        # Check for duplicates
-        if tweet in self.posted_tweets:
-            return False
-            
-        # Avoid common AI artifacts
-        bad_patterns = [
-            r'^(I|As an AI|Sorry|I cannot)',
-            r'(\.{3,}|\[.*?\])',  # Multiple dots or brackets
-            r'^(The|A|An)\s+\w+\s+(is|are|was|were)\s+',  # Too generic starts
-        ]
-        
-        for pattern in bad_patterns:
-            if re.search(pattern, tweet, re.IGNORECASE):
-                return False
+            response.raise_for_status()
+            result = response.json()
+
+            if isinstance(result, list) and result:
+                raw_tweet = result[0]['generated_text']
+                # Extract only the tweet part after "Tweet:"
+                if "Tweet:" in raw_tweet:
+                    tweet = raw_tweet.split("Tweet:")[-1].strip()
+                else:
+                    tweet = raw_tweet.strip()
                 
-        return True
+                tweet = self.clean_tweet_text(tweet)
+                
+                # Check for duplicates
+                if tweet in self.posted_tweets:
+                    logging.warning("⚠️ Duplicate tweet detected, regenerating...")
+                    return self.generate_fallback_tweet(topic)
+                
+                if len(tweet) <= 280 and len(tweet) > 10:  # Ensure reasonable length
+                    logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
+                    return tweet
+                else:
+                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars). Using fallback.")
+                    return self.generate_fallback_tweet(topic)
+            else:
+                logging.error(f"❌ Unexpected Hugging Face response: {result}")
+                return self.generate_fallback_tweet(topic)
+                
+        except requests.exceptions.RequestException as e:
+            logging.error(f"❌ Hugging Face API request failed: {e}")
+            return self.generate_fallback_tweet(topic)
+        except Exception as e:
+            logging.error(f"❌ Unexpected error in tweet generation: {e}")
+            return self.generate_fallback_tweet(topic)
 
     def generate_fallback_tweet(self, topic):
         """Generate a simple fallback tweet when AI generation fails"""
         fallback_templates = [
-            f"Today's focus: {topic}. What's your experience?",
-            f"Quick question: What challenges do you face with {topic}?",
-            f"Reminder: {topic} doesn't have to be overwhelming. Start small! 💪",
-            f"Working on {topic} today. Any tips to share?",
-            f"The more I learn about {topic}, the more interesting it gets! 🤔",
-            f"Hot take: {topic} is underrated in the data world. Thoughts?",
-            f"Pro tip: Master the basics of {topic} before moving to advanced concepts.",
-            f"Anyone else think {topic} deserves more attention in data science?",
-            f"Real talk: {topic} changed my approach to data work. What changed yours?",
-            f"If you're learning {topic}, what's your biggest question right now?"
+            f"Today's focus: {topic}. What's your experience been like?",
+            f"Quick question: What's the biggest challenge you face with {topic}?",
+            f"Reminder: {topic} doesn't have to be overwhelming. Start small, build up.",
+            f"Working on {topic} today. Any tips or resources you'd recommend?",
+            f"The more I learn about {topic}, the more fascinating it becomes."
         ]
         
         tweet = random.choice(fallback_templates)
@@ -222,7 +176,7 @@ class TwitterBot:
             
             if response.status_code == 201:
                 tweet_id = response.json()['data']['id']
-                self.posted_tweets.add(tweet_text)
+                self.posted_tweets.add(tweet_text)  # Track posted tweet
                 logging.info(f"✅ Tweet posted successfully! ID: {tweet_id}")
                 logging.info(f"📝 Content: {tweet_text}")
                 return True
@@ -246,14 +200,14 @@ class TwitterBot:
         topics = json.loads(topics_str) if topics_str else [
             "Data Pipeline Architecture",
             "SQL Performance Optimization", 
-            "Python Data Manipulation",
+            "Python Data Manipulation with Pandas",
             "Machine Learning Feature Engineering",
             "Data Visualization Best Practices",
             "ETL vs ELT Processes",
             "Database Indexing Strategies",
             "API Integration for Data Collection",
-            "Data Quality Validation",
-            "Cloud Data Warehousing",
+            "Data Quality Validation Techniques",
+            "Cloud Data Warehousing Solutions",
             "Real-time Data Processing",
             "Data Science Project Organization",
             "Statistical Analysis in Business",
@@ -306,7 +260,7 @@ class TwitterBot:
         
         while time.time() < end_time and schedule.get_jobs():
             schedule.run_pending()
-            time.sleep(60)
+            time.sleep(60)  # Check every minute instead of every second
 
         logging.info("✅ Bot execution completed")
         return posted_tweets
