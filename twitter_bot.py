@@ -44,7 +44,7 @@ class TwitterBot:
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
         # Remove common AI response patterns that might appear at the start
-        text = re.sub(r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:)', '', text, flags=re.IGNORECASE).strip()
+        text = re.sub(r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:|Here is your tweet:|Here\'s a tweet for you:)', '', text, flags=re.IGNORECASE).strip()
         text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
         text = text.strip('"\' \n')
         
@@ -55,22 +55,26 @@ class TwitterBot:
             
         # Ensure tweet is within Twitter's character limit (280 characters)
         if len(text) > 280:
-            # Try to trim gracefully, prioritizing complete sentences if possible
-            text = text[:277] + "..." # Truncate and add ellipsis
+            text = text[:277] + "..." # Truncate and add ellipsis, keeping space for 3 dots
             last_space = text.rfind(' ')
             if last_space > 200: # Only trim at word boundary if it's not too early
                 text = text[:last_space] + "..."
 
         return text
 
-    def generate_tweet_with_huggingface(self, topic):
-        """Generate tweet using Hugging Face DeepSeek model with better prompting"""
-        hf_token = os.environ.get("HF")
-        if not hf_token:
-            logging.error("❌ Hugging Face API token not found in environment.")
+    def generate_tweet_with_deepseek(self, topic):
+        """Generate tweet using DeepSeek API"""
+        deepseek_api_key = os.environ.get("DS_Key")
+        if not deepseek_api_key:
+            logging.error("❌ DeepSeek API key not found in environment (DS_Key).")
             return None
 
-        headers = {"Authorization": f"Bearer {hf_token}"}
+        # DeepSeek API endpoint (confirmed from their docs that it's OpenAI-compatible)
+        api_url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {deepseek_api_key}"
+        }
 
         tweet_styles_str = os.environ.get('TWEET_STYLES')
         tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
@@ -92,68 +96,44 @@ class TwitterBot:
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Enhanced prompt for better tweet generation and to guide DeepSeek-R1-0528
-        prompt = f"""You are a helpful and engaging data professional tweeting about data science, analytics, and tech.
-Today's topic: {topic}.
+        # Construct messages payload for OpenAI-compatible API
+        messages = [
+            {"role": "system", "content": "You are a helpful and engaging data professional tweeting about data science, analytics, and tech. Write a short, engaging Twitter post."},
+            {"role": "user", "content": f"""Today's topic: {topic}.
 
-Write a short, engaging Twitter post (under 280 characters) that fulfills this request: "{selected_style}"
+Write a Twitter post (under 280 characters) that fulfills this request: "{selected_style}"
 
 Requirements for the tweet:
 - Conversational and authentic tone.
 - Do NOT include quotation marks around the entire response.
 - Include an actionable insight, a compelling question, or a thought-provoking statement.
 - Sound like a human data professional, not an AI.
-- Avoid phrases like "As an AI..." or similar.
-- No introduction like "Here is a tweet..."
+- Avoid phrases like "As an AI...", "Here is your tweet...", or similar introductions.
+- Start directly with the tweet content.
 
-Tweet:"""
+Tweet:"""}
+        ]
 
         payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": 120, # Increased slightly to allow more flexibility, but cleaning will truncate
-                "temperature": 0.6,    # Adjusted based on DeepSeek's recommendation
-                "top_p": 0.9,
-                "do_sample": True,
-                "repetition_penalty": 1.1
-            }
+            "model": "deepseek-ai/DeepSeek-R1-0528", # Specify the model explicitly
+            "messages": messages,
+            "max_tokens": 120, # Max output tokens for the model
+            "temperature": 0.6,
+            "top_p": 0.9,
+            "stream": False # Set to False for direct response
         }
 
-        logging.info(f"🧠 Generating tweet for topic: {topic}")
+        logging.info(f"🧠 Generating tweet for topic: {topic} using DeepSeek API.")
 
         try:
-            # CORRECTED: Using the full model ID for DeepSeek-R1-0528
-            model_url = "https://api-inference.huggingface.co/models/deepseek-ai/DeepSeek-R1-0528"
-            response = requests.post(
-                model_url,
-                headers=headers,
-                json=payload,
-                timeout=60 # Increased timeout for larger models
-            )
-
-            response.raise_for_status()
+            response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+            response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
             result = response.json()
 
-            if isinstance(result, list) and result:
-                raw_tweet = result[0]['generated_text']
+            if result and 'choices' in result and result['choices']:
+                raw_tweet = result['choices'][0]['message']['content'].strip()
                 
-                # The model might repeat the prompt or add conversational AI elements.
-                # Find the actual tweet part, which usually follows the "Tweet:" instruction.
-                if "Tweet:" in raw_tweet:
-                    tweet = raw_tweet.split("Tweet:", 1)[-1].strip()
-                elif "tweet:" in raw_tweet.lower():
-                    tweet = raw_tweet.split("tweet:", 1)[-1].strip()
-                else:
-                    # If "Tweet:" isn't found, try to extract based on the end of the prompt
-                    # or just use the whole thing and let clean_tweet_text handle it.
-                    prompt_end_index = raw_tweet.find("Tweet:")
-                    if prompt_end_index != -1:
-                        tweet = raw_tweet[prompt_end_index + len("Tweet:"):].strip()
-                    else:
-                        tweet = raw_tweet.strip()
-
-
-                tweet = self.clean_tweet_text(tweet)
+                tweet = self.clean_tweet_text(raw_tweet)
                 
                 # Check for duplicates and reasonable length after cleaning
                 if tweet in self.posted_tweets:
@@ -164,16 +144,18 @@ Tweet:"""
                     logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
                     return tweet
                 else:
-                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars) or too short. Using fallback.")
-                    logging.warning(f"Problematic tweet: '{tweet}'")
+                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars) or too short after cleaning. Using fallback.")
+                    logging.warning(f"Problematic raw tweet: '{raw_tweet}'")
+                    logging.warning(f"Problematic cleaned tweet: '{tweet}'")
                     return self.generate_fallback_tweet(topic)
             else:
-                logging.error(f"❌ Unexpected Hugging Face response: {result}")
+                logging.error(f"❌ Unexpected DeepSeek API response structure: {json.dumps(result)}")
                 return self.generate_fallback_tweet(topic)
                 
         except requests.exceptions.RequestException as e:
-            logging.error(f"❌ Hugging Face API request failed: {e}")
+            logging.error(f"❌ DeepSeek API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
+                logging.error(f"Response status: {e.response.status_code}")
                 logging.error(f"Response content: {e.response.text}")
             return self.generate_fallback_tweet(topic)
         except Exception as e:
@@ -257,7 +239,8 @@ Tweet:"""
         ]
 
         topic = random.choice(topics)
-        tweet_text = self.generate_tweet_with_huggingface(topic)
+        # Changed to use the DeepSeek generation method
+        tweet_text = self.generate_tweet_with_deepseek(topic)
 
         if tweet_text and self.post_tweet(tweet_text):
             return tweet_text
