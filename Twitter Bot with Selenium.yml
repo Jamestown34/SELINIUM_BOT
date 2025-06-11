@@ -35,4 +35,4 @@ jobs:
           pip install requests schedule requests_oauthlib
 
       - name: 🚀 Run Twitter Bot
-        run: python twitter_bot_hf.py
+        run: twitter_bot.py
