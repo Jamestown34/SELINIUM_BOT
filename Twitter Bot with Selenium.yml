@@ -3,7 +3,7 @@ name: 🤖 Twitter Bot HF Scheduler
 on:
   schedule:
     - cron: '0 7,13,19 * * *'  # Runs at 07:00, 13:00, and 19:00 UTC
-  workflow_dispatch:           # Allows manual triggering from GitHub UI
+  workflow_dispatch:          # Allows manual triggering from GitHub UI
 
 jobs:
   run-twitter-bot:
@@ -13,7 +13,8 @@ jobs:
       TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-      HF: ${{ secrets.HF }}
+      # Removed HF, added DS_Key for DeepSeek API
+      DS_Key: ${{ secrets.DS_Key }}
       TWEET_STYLES: ${{ secrets.TWEET_STYLES }}
       TOPICS: ${{ secrets.TOPICS }}
       SCHEDULE_TIMES: '["07:00", "13:00", "19:00"]'
@@ -35,4 +36,4 @@ jobs:
           pip install requests schedule requests_oauthlib
 
       - name: 🚀 Run Twitter Bot
-        run: twitter_bot.py
+        run: python twitter_bot.py # Changed to 'python twitter_bot.py' for explicit execution
