@@ -4,14 +4,10 @@ import random
 import time
 import json
 import schedule
+import requests
 from requests_oauthlib import OAuth1Session
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from datetime import datetime, timedelta
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -20,312 +16,270 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()] + ([logging.FileHandler('twitter_bot.log')] if os.environ.get('LOG_FILE') else [])
 )
 
-# Twitter Setup
-def setup_twitter_oauth():
-    logging.info("➡️ Entering setup_twitter_oauth()")
-    consumer_key = os.environ.get("TWITTER_API_KEY")
-    consumer_secret = os.environ.get("TWITTER_API_SECRET")
-    access_token = os.environ.get("TWITTER_ACCESS_TOKEN")
-    access_token_secret = os.environ.get("TWITTER_ACCESS_SECRET")
-
-    if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-        logging.error("❌ Missing Twitter API credentials as environment variables.")
-        return None
-
-    return OAuth1Session(
-        consumer_key,
-        client_secret=consumer_secret,
-        resource_owner_key=access_token,
-        resource_owner_secret=access_token_secret,
-    )
-
-# Setup Selenium WebDriver for ChatGPT
-def setup_selenium_driver():
-    logging.info("➡️ Setting up Selenium WebDriver")
-    
-    # Configure Chrome options for headless operation
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run in headless mode
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    
-    # For GitHub Actions, we need these additional configurations
-    if os.environ.get('GITHUB_ACTIONS') == 'true':
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-setuid-sandbox")
-        chrome_options.add_argument("--remote-debugging-port=9222")
-    
-    try:
-        driver = webdriver.Chrome(options=chrome_options)
-        return driver
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize Selenium WebDriver: {e}")
-        return None
-
-# Login to ChatGPT
-def login_to_chatgpt(driver):
-    logging.info("➡️ Logging into ChatGPT")
-    
-    email = os.environ.get("CHATGPT_EMAIL")
-    password = os.environ.get("CHATGPT_PASSWORD")
-    
-    if not email or not password:
-        logging.error("❌ Missing ChatGPT credentials in environment variables")
-        return False
-    
-    try:
-        # Navigate to ChatGPT login page
-        driver.get("https://chat.openai.com/auth/login")
-        time.sleep(3)  # Wait for page to load
+class TwitterBot:
+    def __init__(self):
+        self.oauth = None
+        self.setup_oauth()
+        self.posted_tweets = set()  # Track posted content to avoid duplicates
         
-        # Click Log in button
-        login_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Log in')]"))
-        )
-        login_button.click()
-        
-        # Enter email
-        email_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "username"))
-        )
-        email_input.send_keys(email)
-        email_input.send_keys(Keys.RETURN)
-        
-        # Enter password
-        password_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "password"))
-        )
-        password_input.send_keys(password)
-        password_input.send_keys(Keys.RETURN)
-        
-        # Wait for the chat interface to load
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//textarea[contains(@placeholder, 'Message ChatGPT')]"))
+    def setup_oauth(self):
+        """Setup Twitter OAuth session"""
+        logging.info("➡️ Setting up Twitter OAuth")
+        consumer_key = os.environ.get("TWITTER_API_KEY")
+        consumer_secret = os.environ.get("TWITTER_API_SECRET")
+        access_token = os.environ.get("TWITTER_ACCESS_TOKEN")
+        access_token_secret = os.environ.get("TWITTER_ACCESS_SECRET")
+
+        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+            logging.error("❌ Missing Twitter API credentials as environment variables.")
+            return
+
+        self.oauth = OAuth1Session(
+            consumer_key,
+            client_secret=consumer_secret,
+            resource_owner_key=access_token,
+            resource_owner_secret=access_token_secret,
         )
         
-        logging.info("✅ Successfully logged into ChatGPT")
-        return True
+    def clean_tweet_text(self, text):
+        """Clean and format tweet text"""
+        # Remove common AI response patterns
+        text = re.sub(r'^(Here\'s|Here is)', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+        text = text.strip('"\' \n')
         
-    except Exception as e:
-        logging.error(f"❌ Failed to login to ChatGPT: {e}")
-        return False
+        # Ensure proper hashtag formatting
+        if '#' not in text and random.random() < 0.3:  # 30% chance to add relevant hashtag
+            hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData', '#Python', '#SQL']
+            text += f" {random.choice(hashtags)}"
+            
+        return text
 
-# Generate Tweet using ChatGPT
-def generate_tweet_with_chatgpt(driver, topic):
-    if not driver:
-        logging.error("❌ WebDriver not initialized")
-        return None
-    
-    tweet_styles_str = os.environ.get('TWEET_STYLES')
-    tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
-        "Share an insightful fact about {topic}. Keep it concise and engaging.",
-        "Write a thought-provoking question about {topic} to spark discussion.",
-        "Post a quick tip or hack related to {topic}.",
-        "Create a short and witty take on {topic}.",
-        "Write a motivational quote related to {topic}.",
-        "Provide a little-known historical fact about {topic}.",
-        "Break down a complex concept related to {topic} in simple terms."
-    ]
-    
-    max_retries = int(os.environ.get('MAX_TWEET_GENERATION_RETRIES', '3'))
-    max_length = int(os.environ.get('MAX_TWEET_LENGTH', '280'))
-    retry_count = 0
-    
-    while retry_count < max_retries:
+    def generate_tweet_with_huggingface(self, topic):
+        """Generate tweet using Hugging Face DeepSeek model with better prompting"""
+        hf_token = os.environ.get("HF")
+        if not hf_token:
+            logging.error("❌ Hugging Face API token not found in environment.")
+            return None
+
+        headers = {"Authorization": f"Bearer {hf_token}"}
+
+        tweet_styles_str = os.environ.get('TWEET_STYLES')
+        tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
+            "Share a practical tip about {topic} that beginners can apply immediately.",
+            "What's the most common mistake people make with {topic}? Share the solution.",
+            "Explain {topic} in one sentence that a 5-year-old could understand.",
+            "Hot take: {topic} is overrated/underrated because...",
+            "If you could only know one thing about {topic}, it should be this:",
+            "Thread: Why {topic} matters more than you think (1/3)",
+            "Quick reminder: {topic} doesn't have to be complicated. Here's how:",
+            "Unpopular opinion about {topic}:",
+            "The best free resource for learning {topic} is...",
+            "Real talk: {topic} changed how I think about data. Here's why:"
+        ]
+
         selected_style = random.choice(tweet_styles).format(topic=topic)
-        prompt = f"{selected_style} Make sure your response is under {max_length} characters and contains only the tweet text with no additional explanations or quotes."
+        
+        # Enhanced prompt for better tweet generation
+        prompt = f"""Write a engaging Twitter post about: {selected_style}
+
+Requirements:
+- Under 280 characters
+- Conversational and authentic tone
+- No quotation marks around the response
+- Include actionable insight or question
+- Sound like a human data professional, not an AI
+
+Tweet:"""
+
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 80,
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "do_sample": True,
+                "repetition_penalty": 1.1
+            }
+        }
+
+        logging.info(f"🧠 Generating tweet for topic: {topic}")
+
+        try:
+            response = requests.post(
+                "https://api-inference.huggingface.co/models/deepseek-ai/deepseek-llm-7b-instruct",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if isinstance(result, list) and result:
+                raw_tweet = result[0]['generated_text']
+                # Extract only the tweet part after "Tweet:"
+                if "Tweet:" in raw_tweet:
+                    tweet = raw_tweet.split("Tweet:")[-1].strip()
+                else:
+                    tweet = raw_tweet.strip()
+                
+                tweet = self.clean_tweet_text(tweet)
+                
+                # Check for duplicates
+                if tweet in self.posted_tweets:
+                    logging.warning("⚠️ Duplicate tweet detected, regenerating...")
+                    return self.generate_fallback_tweet(topic)
+                
+                if len(tweet) <= 280 and len(tweet) > 10:  # Ensure reasonable length
+                    logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
+                    return tweet
+                else:
+                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars). Using fallback.")
+                    return self.generate_fallback_tweet(topic)
+            else:
+                logging.error(f"❌ Unexpected Hugging Face response: {result}")
+                return self.generate_fallback_tweet(topic)
+                
+        except requests.exceptions.RequestException as e:
+            logging.error(f"❌ Hugging Face API request failed: {e}")
+            return self.generate_fallback_tweet(topic)
+        except Exception as e:
+            logging.error(f"❌ Unexpected error in tweet generation: {e}")
+            return self.generate_fallback_tweet(topic)
+
+    def generate_fallback_tweet(self, topic):
+        """Generate a simple fallback tweet when AI generation fails"""
+        fallback_templates = [
+            f"Today's focus: {topic}. What's your experience been like?",
+            f"Quick question: What's the biggest challenge you face with {topic}?",
+            f"Reminder: {topic} doesn't have to be overwhelming. Start small, build up.",
+            f"Working on {topic} today. Any tips or resources you'd recommend?",
+            f"The more I learn about {topic}, the more fascinating it becomes."
+        ]
+        
+        tweet = random.choice(fallback_templates)
+        logging.info(f"🔄 Using fallback tweet: {tweet}")
+        return tweet
+
+    def post_tweet(self, tweet_text):
+        """Post tweet to Twitter with better error handling"""
+        if not self.oauth or not tweet_text:
+            logging.error("❌ Cannot post tweet. Missing OAuth or tweet text.")
+            return False
+
+        payload = {"text": tweet_text}
         
         try:
-            # Find the textarea and enter the prompt
-            textarea = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//textarea[contains(@placeholder, 'Message ChatGPT')]"))
-            )
-            textarea.clear()
-            textarea.send_keys(prompt)
-            textarea.send_keys(Keys.RETURN)
+            response = self.oauth.post("https://api.twitter.com/2/tweets", json=payload, timeout=30)
             
-            # Wait for ChatGPT to respond
-            response_selector = "div[data-message-author-role='assistant'] div.markdown"
-            WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, response_selector))
-            )
-            
-            # Give a moment for the full response to appear
-            time.sleep(3)
-            
-            # Get the latest response
-            responses = driver.find_elements(By.CSS_SELECTOR, response_selector)
-            tweet_text = responses[-1].text.strip()
-            
-            # Clean the tweet text (remove quotes if present)
-            tweet_text = tweet_text.strip('"\'')
-            
-            if len(tweet_text) <= max_length:
-                logging.info(f"✅ Generated tweet: {tweet_text}")
-                
-                # Start a new chat for the next prompt
-                new_chat_button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'New chat') or contains(@aria-label, 'New chat')]"))
-                )
-                new_chat_button.click()
-                time.sleep(2)  # Wait for new chat to initialize
-                
-                return tweet_text
+            if response.status_code == 201:
+                tweet_id = response.json()['data']['id']
+                self.posted_tweets.add(tweet_text)  # Track posted tweet
+                logging.info(f"✅ Tweet posted successfully! ID: {tweet_id}")
+                logging.info(f"📝 Content: {tweet_text}")
+                return True
             else:
-                logging.warning(f"⚠️ Generated tweet exceeds maximum length ({len(tweet_text)} characters). Retrying.")
-                retry_count += 1
+                logging.error(f"❌ Twitter API error: {response.status_code}")
+                logging.error(f"Response: {response.text}")
+                return False
                 
-                # Start a new chat for the next attempt
-                new_chat_button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'New chat') or contains(@aria-label, 'New chat')]"))
-                )
-                new_chat_button.click()
-                time.sleep(2)  # Wait for new chat to initialize
-                
+        except requests.exceptions.RequestException as e:
+            logging.error(f"❌ Network error posting tweet: {e}")
+            return False
         except Exception as e:
-            logging.error(f"❌ ChatGPT tweet generation failed (attempt {retry_count + 1}/{max_retries}): {e}")
-            retry_count += 1
-            
-            # Try to start a new chat if possible
-            try:
-                new_chat_button = driver.find_element(By.XPATH, "//a[contains(text(), 'New chat') or contains(@aria-label, 'New chat')]")
-                new_chat_button.click()
-                time.sleep(2)
-            except:
-                pass  # Ignore if we can't find the new chat button
-    
-    logging.error("❌ Failed to generate a suitable tweet after multiple retries.")
-    return None
+            logging.error(f"❌ Unexpected error posting tweet: {e}")
+            return False
 
-# Post Tweet
-def post_tweet(oauth, tweet_text):
-    if not oauth or not tweet_text:
-        logging.error("❌ Cannot post tweet. Missing OAuth or tweet text.")
-        return
-    
-    payload = {"text": tweet_text}
-    try:
-        response = oauth.post("https://api.twitter.com/2/tweets", json=payload)
-        if response.status_code != 201:
-            logging.error(f"❌ Twitter API error: {response.status_code} {response.text}")
-            return
+    def generate_and_post(self, schedule_time):
+        """Generate and post a tweet"""
+        logging.info(f"➡️ Generating tweet for schedule: {schedule_time}")
         
-        tweet_id = response.json()['data']['id']
-        logging.info(f"✅ Tweet posted: {tweet_text} (ID: {tweet_id})")
-    except Exception as e:
-        logging.error(f"❌ Twitter API error: {e}")
+        topics_str = os.environ.get('TOPICS')
+        topics = json.loads(topics_str) if topics_str else [
+            "Data Pipeline Architecture",
+            "SQL Performance Optimization", 
+            "Python Data Manipulation with Pandas",
+            "Machine Learning Feature Engineering",
+            "Data Visualization Best Practices",
+            "ETL vs ELT Processes",
+            "Database Indexing Strategies",
+            "API Integration for Data Collection",
+            "Data Quality Validation Techniques",
+            "Cloud Data Warehousing Solutions",
+            "Real-time Data Processing",
+            "Data Science Project Organization",
+            "Statistical Analysis in Business",
+            "Data Storytelling Techniques",
+            "Automated Reporting Systems"
+        ]
 
-# Main function to generate and post tweet
-def generate_and_post(schedule_time, driver):
-    logging.info(f"➡️ Attempting to generate and post for schedule time: {schedule_time}")
-    oauth = setup_twitter_oauth()
-    
-    if not oauth:
-        logging.error("❌ Twitter OAuth failed.")
-        return None
-    
-    if not driver:
-        logging.error("❌ Selenium WebDriver not initialized.")
-        return None
-    
-    topics_str = os.environ.get('TOPICS')
-    topics = json.loads(topics_str) if topics_str else [
-        "ETL (Extract, Transform, Load) Processes",
-        "Data Streaming Technologies",
-        "DevOps for Data Science (MLOps)",
-        "Internet of Things (IoT) Data Analysis",
-        "The aim of Every business data analysis ",
-        "Build your Thought process in every data analysis task",
-        "Anomaly Detection in Data",
-        "Open Source Data Science Tools",
-        "Data Science Career Advice",
-        "Writing Technical Documentation",
-        "SQL Tips for Data Analysts",
-        "Machine Learning Model Optimization",
-        "Big Data Trends",
-        "Most used shortcut in Excel",
-        "Data Security and Privacy",
-        "Phython Skills for data science",
-        "Power BI and Tableau as first choice tools",
-        "Feature Engineering in ML",
-        "Python Libraries for Data Science",
-        "Version Control for Data Projects (Git)",
-        "Data Science Project Management"
-    ]
-    
-    topic = random.choice(topics)
-    logging.info(f"🔹 Generating tweet for topic: {topic}")
-    tweet_text = generate_tweet_with_chatgpt(driver, topic)
-    
-    if tweet_text:
-        logging.info("🔹 Posting tweet now...")
-        post_tweet(oauth, tweet_text)
-        logging.info("✅ Tweet successfully posted!")
-        return tweet_text
-    else:
-        logging.error("❌ Tweet generation failed for this schedule time.")
-        return None
+        topic = random.choice(topics)
+        tweet_text = self.generate_tweet_with_huggingface(topic)
 
-# Scheduled Tweet Posting (for one execution)
-def run_scheduled_tweets_once():
-    logging.info("✅ run_scheduled_tweets_once() function has started for this execution.")
-    
-    # Setup Selenium and login to ChatGPT once for the entire session
-    driver = setup_selenium_driver()
-    if not driver:
-        logging.error("❌ Failed to set up Selenium WebDriver. Exiting.")
-        return []
-    
-    # Login to ChatGPT
-    login_success = login_to_chatgpt(driver)
-    if not login_success:
-        logging.error("❌ Failed to log in to ChatGPT. Exiting.")
-        driver.quit()
-        return []
-    
-    schedule_times_str = os.environ.get('SCHEDULE_TIMES', '["07:00", "13:00", "19:00"]')
-    schedule_times = json.loads(schedule_times_str)
-    tweets_to_post = []
-    
-    try:
-        # For immediate testing, generate and post a tweet right away
+        if tweet_text and self.post_tweet(tweet_text):
+            return tweet_text
+        else:
+            logging.error(f"❌ Failed to generate or post tweet for {schedule_time}")
+            return None
+
+    def run_bot(self):
+        """Main bot execution with improved scheduling"""
+        logging.info("🚀 Starting Twitter bot...")
+        
+        if not self.oauth:
+            logging.error("❌ Twitter authentication failed. Exiting.")
+            return []
+
+        posted_tweets = []
+        
+        # Post immediately if requested
         if os.environ.get('POST_IMMEDIATELY', 'false').lower() == 'true':
-            logging.info("🔹 Posting a tweet immediately")
-            tweet = generate_and_post("immediate", driver)
+            logging.info("🔹 Posting immediate tweet")
+            tweet = self.generate_and_post("immediate")
             if tweet:
-                tweets_to_post.append(tweet)
+                posted_tweets.append(tweet)
+
+        # Setup scheduled posts
+        schedule_times_str = os.environ.get('SCHEDULE_TIMES', '["09:00", "14:00", "18:00"]')
+        schedule_times = json.loads(schedule_times_str)
         
-        # Schedule regular posts
         for time_str in schedule_times:
             try:
-                schedule.every().day.at(time_str).do(lambda t=time_str: tweets_to_post.append(generate_and_post(t, driver)))
-                logging.info(f"⏰ Scheduled generation for {time_str}")
+                schedule.every().day.at(time_str).do(lambda t=time_str: self.generate_and_post(t))
+                logging.info(f"⏰ Scheduled tweet for {time_str}")
             except schedule.InvalidTimeError:
                 logging.error(f"❌ Invalid schedule time: {time_str}")
-        
-        # Run pending scheduled tasks for a limited duration
-        duration_hours = float(os.environ.get('RUN_DURATION_HOURS', '5'))
+
+        # Run scheduler
+        duration_hours = float(os.environ.get('RUN_DURATION_HOURS', '24'))
         end_time = time.time() + (duration_hours * 60 * 60)
+        
+        logging.info(f"🕒 Bot will run for {duration_hours} hours")
+        
         while time.time() < end_time and schedule.get_jobs():
             schedule.run_pending()
-            time.sleep(1)
+            time.sleep(60)  # Check every minute instead of every second
+
+        logging.info("✅ Bot execution completed")
+        return posted_tweets
+
+def main():
+    """Main entry point"""
+    try:
+        bot = TwitterBot()
+        posted_tweets = bot.run_bot()
+        logging.info(f"🎉 Session complete. Posted {len(posted_tweets)} tweets.")
         
+        if posted_tweets:
+            logging.info("📋 Posted tweets:")
+            for i, tweet in enumerate(posted_tweets, 1):
+                logging.info(f"{i}. {tweet}")
+                
+    except KeyboardInterrupt:
+        logging.info("🛑 Bot stopped by user")
     except Exception as e:
-        logging.error(f"❌ Error during scheduled tweets: {e}")
-    finally:
-        # Always close the driver when done
-        if driver:
-            driver.quit()
-            logging.info("👋 Closed Selenium WebDriver")
-    
-    logging.info("✅ Scheduled tasks completed for this execution.")
-    return [tweet for tweet in tweets_to_post if tweet is not None]
+        logging.error(f"❌ Fatal error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 Running Twitter bot with Selenium for ChatGPT...")
-    try:
-        run_scheduled_tweets_once()
-    except Exception as e:
-        logging.error(f"❌ Error in run_scheduled_tweets_once: {e}")
+    main()
