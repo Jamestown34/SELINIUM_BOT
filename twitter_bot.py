@@ -107,7 +107,7 @@ Tweet:"""
 
         try:
             response = requests.post(
-                "https://api-inference.huggingface.co/models/google/flan-t5-base",
+                model_url = "https://api-inference.huggingface.co/models/gpt2",
                 headers=headers,
                 json=payload,
                 timeout=30
