@@ -106,14 +106,14 @@ Tweet:"""
         logging.info(f"🧠 Generating tweet for topic: {topic}")
 
         try:
-           model_url = "https://api-inference.huggingface.co/models/gpt2"
+    model_url = "https://api-inference.huggingface.co/models/gpt2"
+    response = requests.post(
+        model_url,
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
 
-response = requests.post(
-    model_url,
-    headers=headers,
-    json=payload,
-    timeout=30
-)
 
             response.raise_for_status()
 
