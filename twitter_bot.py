@@ -70,7 +70,7 @@ class TwitterBot:
             return None
 
         # Using a text generation model that's good for creating natural text
-        api_url = "https://api-inference.huggingface.co/models/distilgpt2"
+        api_url = "https://api-inference.huggingface.co/models/gpt2"
         headers = {
             "Authorization": f"Bearer {hugging_face_api_key}",
             "Content-Type": "application/json"
