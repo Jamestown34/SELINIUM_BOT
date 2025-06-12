@@ -62,17 +62,16 @@ class TwitterBot:
 
         return text
 
-    def generate_tweet_with_hugging_face(self, topic):
-        """Generate tweet using Hugging Face API"""
-        hugging_face_api_key = os.environ.get("HF")
-        if not hugging_face_api_key:
-            logging.error("❌ Hugging Face API key not found in environment (HF).")
+    def generate_tweet_with_groq(self, topic):
+        """Generate tweet using Groq API"""
+        groq_api_key = os.environ.get("GROQ_API_KEY")
+        if not groq_api_key:
+            logging.error("❌ Groq API key not found in environment (GROQ_API_KEY).")
             return None
 
-        # Using a text generation model that's good for creating natural text
-        api_url = "https://api-inference.huggingface.co/models/gpt2"
+        api_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {hugging_face_api_key}",
+            "Authorization": f"Bearer {groq_api_key}",
             "Content-Type": "application/json"
         }
 
@@ -96,29 +95,35 @@ class TwitterBot:
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Create a prompt for Hugging Face text generation
-        prompt = f"Write a Twitter post about {topic}. {selected_style} Keep it under 280 characters and engaging:"
+        # Create a focused prompt for Groq
+        prompt = f"Write a concise Twitter post about {topic}. {selected_style} Requirements: Under 280 characters, engaging, professional tone. Don't include hashtags unless specifically relevant. Just return the tweet text, nothing else."
 
         payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": 100,
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "do_sample": True,
-                "return_full_text": False
-            }
+            "model": "llama3-8b-8192",  # Fast and reliable model
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a data science expert who writes engaging, concise Twitter posts. Write only the tweet content, no additional text or explanations."
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            "max_tokens": 100,
+            "temperature": 0.7,
+            "top_p": 0.9
         }
 
-        logging.info(f"🧠 Generating tweet for topic: {topic} using Hugging Face API.")
+        logging.info(f"🧠 Generating tweet for topic: {topic} using Groq API.")
 
         try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             result = response.json()
 
-            if isinstance(result, list) and len(result) > 0 and 'generated_text' in result[0]:
-                raw_tweet = result[0]['generated_text'].strip()
+            if 'choices' in result and len(result['choices']) > 0:
+                raw_tweet = result['choices'][0]['message']['content'].strip()
                 
                 tweet = self.clean_tweet_text(raw_tweet)
                 
@@ -136,11 +141,11 @@ class TwitterBot:
                     logging.warning(f"Problematic cleaned tweet: '{tweet}'")
                     return self.generate_fallback_tweet(topic)
             else:
-                logging.error(f"❌ Unexpected Hugging Face API response structure: {json.dumps(result)}")
+                logging.error(f"❌ Unexpected Groq API response structure: {json.dumps(result)}")
                 return self.generate_fallback_tweet(topic)
                 
         except requests.exceptions.RequestException as e:
-            logging.error(f"❌ Hugging Face API request failed: {e}")
+            logging.error(f"❌ Groq API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logging.error(f"Response status: {e.response.status_code}")
                 logging.error(f"Response content: {e.response.text}")
@@ -226,8 +231,8 @@ class TwitterBot:
         ]
 
         topic = random.choice(topics)
-        # Generate tweet using Hugging Face
-        tweet_text = self.generate_tweet_with_hugging_face(topic)
+        # Generate tweet using Groq
+        tweet_text = self.generate_tweet_with_groq(topic)
 
         if tweet_text and self.post_tweet(tweet_text):
             return tweet_text
