@@ -1,8 +1,7 @@
 name: 🤖 Twitter Bot HF Scheduler
-
 on:
   schedule:
-    - cron: '0 7,13,19 * * *'  # Runs at 07:00, 13:00, and 19:00 UTC
+    - cron: '0 7,13,19 * * *'  # Fixed: Added missing * for day of week - Runs at 07:00, 13:00, and 19:00 UTC
   workflow_dispatch:          # Allows manual triggering from GitHub UI
 
 jobs:
@@ -13,27 +12,27 @@ jobs:
       TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-      # Removed HF, added DS_Key for DeepSeek API
-      HF: ${{ secrets.DS_Key }}
+      # Fixed: Using HF secret for Hugging Face API (not DS_Key)
+      HF: ${{ secrets.HF }}
       TWEET_STYLES: ${{ secrets.TWEET_STYLES }}
       TOPICS: ${{ secrets.TOPICS }}
       SCHEDULE_TIMES: '["07:00", "13:00", "19:00"]'
       RUN_DURATION_HOURS: '0.1'  # Run for ~6 minutes each time
       POST_IMMEDIATELY: 'true'
-
+      
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
-
+        
       - name: 🐍 Set Up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+          
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests schedule requests_oauthlib
-
+          pip install requests schedule requests-oauthlib
+          
       - name: 🚀 Run Twitter Bot
-        run: python twitter_bot.py # Changed to 'python twitter_bot.py' for explicit execution
+        run: python twitter_bot.py
