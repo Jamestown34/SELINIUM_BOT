@@ -14,7 +14,7 @@ jobs:
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
       # Removed HF, added DS_Key for DeepSeek API
-      DS_Key: ${{ secrets.DS_Key }}
+      HF: ${{ secrets.DS_Key }}
       TWEET_STYLES: ${{ secrets.TWEET_STYLES }}
       TOPICS: ${{ secrets.TOPICS }}
       SCHEDULE_TIMES: '["07:00", "13:00", "19:00"]'
