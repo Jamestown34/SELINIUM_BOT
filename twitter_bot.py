@@ -62,18 +62,19 @@ class TwitterBot:
 
         return text
 
-    def generate_tweet_with_deepseek(self, topic):
-        """Generate tweet using DeepSeek API"""
-        deepseek_api_key = os.environ.get("DS_Key")
+    def generate_tweet_with_hugging_face(self, topic):
+        """Generate tweet using hugging_face API"""
+        hugging_face_api_key = os.environ.get("HF")
         if not deepseek_api_key:
-            logging.error("❌ DeepSeek API key not found in environment (DS_Key).")
+            logging.error("❌ hugging_face API key not found in environment (DS_Key).")
             return None
 
-        # DeepSeek API endpoint (confirmed from their docs that it's OpenAI-compatible)
-        api_url = "https://api.deepseek.com/chat/completions"
+        
+        api_url = "https://api-inference.huggingface.co/models/distilgpt2"
+        token= "HF"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {deepseek_api_key}"
+            "Authorization": f"Bearer {hugging_face_api_key}"
         }
 
         tweet_styles_str = os.environ.get('TWEET_STYLES')
