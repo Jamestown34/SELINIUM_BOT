@@ -63,18 +63,17 @@ class TwitterBot:
         return text
 
     def generate_tweet_with_hugging_face(self, topic):
-        """Generate tweet using hugging_face API"""
+        """Generate tweet using Hugging Face API"""
         hugging_face_api_key = os.environ.get("HF")
-        if not deepseek_api_key:
-            logging.error("❌ hugging_face API key not found in environment (DS_Key).")
+        if not hugging_face_api_key:
+            logging.error("❌ Hugging Face API key not found in environment (HF).")
             return None
 
-        
-        api_url = "https://api-inference.huggingface.co/models/distilgpt2"
-        token= "HF"
+        # Using a text generation model that's good for creating natural text
+        api_url = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {hugging_face_api_key}"
+            "Authorization": f"Bearer {hugging_face_api_key}",
+            "Content-Type": "application/json"
         }
 
         tweet_styles_str = os.environ.get('TWEET_STYLES')
@@ -97,42 +96,29 @@ class TwitterBot:
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Construct messages payload for OpenAI-compatible API
-        messages = [
-            {"role": "system", "content": "You are a helpful and engaging data professional tweeting about data science, analytics, and tech. Write a short, engaging Twitter post."},
-            {"role": "user", "content": f"""Today's topic: {topic}.
-
-Write a Twitter post (under 280 characters) that fulfills this request: "{selected_style}"
-
-Requirements for the tweet:
-- Conversational and authentic tone.
-- Do NOT include quotation marks around the entire response.
-- Include an actionable insight, a compelling question, or a thought-provoking statement.
-- Sound like a human data professional, not an AI.
-- Avoid phrases like "As an AI...", "Here is your tweet...", or similar introductions.
-- Start directly with the tweet content.
-
-Tweet:"""}
-        ]
+        # Create a prompt for Hugging Face text generation
+        prompt = f"Write a Twitter post about {topic}. {selected_style} Keep it under 280 characters and engaging:"
 
         payload = {
-            "model": "deepseek-ai/DeepSeek-R1-0528", # Specify the model explicitly
-            "messages": messages,
-            "max_tokens": 120, # Max output tokens for the model
-            "temperature": 0.6,
-            "top_p": 0.9,
-            "stream": False # Set to False for direct response
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 100,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "do_sample": True,
+                "return_full_text": False
+            }
         }
 
-        logging.info(f"🧠 Generating tweet for topic: {topic} using DeepSeek API.")
+        logging.info(f"🧠 Generating tweet for topic: {topic} using Hugging Face API.")
 
         try:
             response = requests.post(api_url, headers=headers, json=payload, timeout=60)
-            response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+            response.raise_for_status()
             result = response.json()
 
-            if result and 'choices' in result and result['choices']:
-                raw_tweet = result['choices'][0]['message']['content'].strip()
+            if isinstance(result, list) and len(result) > 0 and 'generated_text' in result[0]:
+                raw_tweet = result[0]['generated_text'].strip()
                 
                 tweet = self.clean_tweet_text(raw_tweet)
                 
@@ -150,11 +136,11 @@ Tweet:"""}
                     logging.warning(f"Problematic cleaned tweet: '{tweet}'")
                     return self.generate_fallback_tweet(topic)
             else:
-                logging.error(f"❌ Unexpected DeepSeek API response structure: {json.dumps(result)}")
+                logging.error(f"❌ Unexpected Hugging Face API response structure: {json.dumps(result)}")
                 return self.generate_fallback_tweet(topic)
                 
         except requests.exceptions.RequestException as e:
-            logging.error(f"❌ DeepSeek API request failed: {e}")
+            logging.error(f"❌ Hugging Face API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logging.error(f"Response status: {e.response.status_code}")
                 logging.error(f"Response content: {e.response.text}")
@@ -240,8 +226,8 @@ Tweet:"""}
         ]
 
         topic = random.choice(topics)
-        # Changed to use the DeepSeek generation method
-        tweet_text = self.generate_tweet_with_deepseek(topic)
+        # Generate tweet using Hugging Face
+        tweet_text = self.generate_tweet_with_hugging_face(topic)
 
         if tweet_text and self.post_tweet(tweet_text):
             return tweet_text
