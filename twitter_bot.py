@@ -43,21 +43,18 @@ class TwitterBot:
         
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
-        # Remove common AI response patterns that might appear at the start
         text = re.sub(r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:|Here is your tweet:|Here\'s a tweet for you:)', '', text, flags=re.IGNORECASE).strip()
         text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
         text = text.strip('"\' \n')
         
-        # Ensure proper hashtag formatting - add one if missing for 30% of tweets
         if '#' not in text and random.random() < 0.3:
             hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData', '#Python', '#SQL', '#TechTips', '#AI', '#DeepLearning', '#DataAnalytics']
             text += f" {random.choice(hashtags)}"
             
-        # Ensure tweet is within Twitter's character limit (280 characters)
         if len(text) > 280:
-            text = text[:277] + "..." # Truncate and add ellipsis, keeping space for 3 dots
+            text = text[:277] + "..."
             last_space = text.rfind(' ')
-            if last_space > 200: # Only trim at word boundary if it's not too early
+            if last_space > 200:
                 text = text[:last_space] + "..."
 
         return text
@@ -95,11 +92,10 @@ class TwitterBot:
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
         
-        # Create a focused prompt for Groq
         prompt = f"Write a concise Twitter post about {topic}. {selected_style} Requirements: Under 280 characters, engaging, professional tone. Don't include hashtags unless specifically relevant. Just return the tweet text, nothing else."
 
         payload = {
-            "model": "llama3-8b-8192",  # Fast and reliable model
+            "model": "gpt-oss-20b",  # ✅ updated model
             "messages": [
                 {
                     "role": "system",
@@ -122,36 +118,32 @@ class TwitterBot:
             response.raise_for_status()
             result = response.json()
 
-            if 'choices' in result and len(result['choices']) > 0:
-                raw_tweet = result['choices'][0]['message']['content'].strip()
-                
-                tweet = self.clean_tweet_text(raw_tweet)
-                
-                # Check for duplicates and reasonable length after cleaning
-                if tweet in self.posted_tweets:
-                    logging.warning("⚠️ Duplicate tweet detected, regenerating...")
-                    return self.generate_fallback_tweet(topic)
-                
-                if len(tweet) <= 280 and len(tweet) > 10:  # Ensure reasonable length
-                    logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
-                    return tweet
-                else:
-                    logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars) or too short after cleaning. Using fallback.")
-                    logging.warning(f"Problematic raw tweet: '{raw_tweet}'")
-                    logging.warning(f"Problematic cleaned tweet: '{tweet}'")
-                    return self.generate_fallback_tweet(topic)
-            else:
-                logging.error(f"❌ Unexpected Groq API response structure: {json.dumps(result)}")
-                return self.generate_fallback_tweet(topic)
-                
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"❌ Groq API request failed: {e}. Falling back to llama-3.3-70b.")
+            payload["model"] = "llama-3.3-70b"  # ✅ fallback model
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
         except requests.exceptions.RequestException as e:
-            logging.error(f"❌ Groq API request failed: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                logging.error(f"Response status: {e.response.status_code}")
-                logging.error(f"Response content: {e.response.text}")
+            logging.error(f"❌ Groq API network error: {e}")
             return self.generate_fallback_tweet(topic)
-        except Exception as e:
-            logging.error(f"❌ Unexpected error in tweet generation: {e}")
+
+        if 'choices' in result and len(result['choices']) > 0:
+            raw_tweet = result['choices'][0]['message']['content'].strip()
+            tweet = self.clean_tweet_text(raw_tweet)
+            
+            if tweet in self.posted_tweets:
+                logging.warning("⚠️ Duplicate tweet detected, regenerating...")
+                return self.generate_fallback_tweet(topic)
+            
+            if len(tweet) <= 280 and len(tweet) > 10:
+                logging.info(f"✅ Generated tweet ({len(tweet)} chars): {tweet}")
+                return tweet
+            else:
+                logging.warning(f"⚠️ Tweet length issue ({len(tweet)} chars) or too short after cleaning. Using fallback.")
+                return self.generate_fallback_tweet(topic)
+        else:
+            logging.error(f"❌ Unexpected Groq API response structure: {json.dumps(result)}")
             return self.generate_fallback_tweet(topic)
 
     def generate_fallback_tweet(self, topic):
@@ -167,7 +159,6 @@ class TwitterBot:
         ]
         
         tweet = random.choice(fallback_templates)
-        # Ensure fallback tweet also goes through cleaning to add hashtags if desired
         tweet = self.clean_tweet_text(tweet)
         logging.info(f"🔄 Using fallback tweet: {tweet}")
         return tweet
@@ -185,7 +176,7 @@ class TwitterBot:
             
             if response.status_code == 201:
                 tweet_id = response.json()['data']['id']
-                self.posted_tweets.add(tweet_text)  # Track posted tweet
+                self.posted_tweets.add(tweet_text)
                 logging.info(f"✅ Tweet posted successfully! ID: {tweet_id}")
                 logging.info(f"📝 Content: {tweet_text}")
                 return True
@@ -231,7 +222,6 @@ class TwitterBot:
         ]
 
         topic = random.choice(topics)
-        # Generate tweet using Groq
         tweet_text = self.generate_tweet_with_groq(topic)
 
         if tweet_text and self.post_tweet(tweet_text):
@@ -250,14 +240,12 @@ class TwitterBot:
 
         posted_tweets = []
         
-        # Post immediately if requested
         if os.environ.get('POST_IMMEDIATELY', 'false').lower() == 'true':
             logging.info("🔹 Posting immediate tweet")
             tweet = self.generate_and_post("immediate")
             if tweet:
                 posted_tweets.append(tweet)
 
-        # Setup scheduled posts
         schedule_times_str = os.environ.get('SCHEDULE_TIMES', '["09:00", "14:00", "18:00"]')
         schedule_times = json.loads(schedule_times_str)
         
@@ -268,7 +256,6 @@ class TwitterBot:
             except schedule.InvalidTimeError:
                 logging.error(f"❌ Invalid schedule time: {time_str}")
 
-        # Run scheduler
         duration_hours = float(os.environ.get('RUN_DURATION_HOURS', '24'))
         end_time = time.time() + (duration_hours * 60 * 60)
         
@@ -276,7 +263,7 @@ class TwitterBot:
         
         while time.time() < end_time and schedule.get_jobs():
             schedule.run_pending()
-            time.sleep(60)  # Check every minute instead of every second
+            time.sleep(60)
 
         logging.info("✅ Bot execution completed")
         return posted_tweets
