@@ -8,7 +8,15 @@ import requests
 from requests_oauthlib import OAuth1Session
 from datetime import datetime
 import re
-from groq import Groq   # ✅ use Groq client
+from groq import Groq
+import gspread
+from google.oauth2.service_account import Credentials
+from dateutil import parser
+
+# ====== GOOGLE SHEETS CONFIGURATION ======
+# Make sure to set this in your GitHub Secrets as SHEET_ID
+SHEET_ID = "1E1P_V1LqnE9nDhVhInB8zHu_P3pd-0HZzjkZN6ud8k0"
+WORKSHEET_NAME = "Twitter_Bot_Memory"
 
 # Configure logging
 logging.basicConfig(
@@ -21,9 +29,11 @@ class TwitterBot:
     def __init__(self):
         self.oauth = None
         self.groq_client = None
+        self.sheet = None
+        self.posted_tweets = set()
         self.setup_oauth()
         self.setup_groq()
-        self.posted_tweets = set()  # Track posted content to avoid duplicates
+        self.setup_sheet()
 
     def setup_oauth(self):
         """Setup Twitter OAuth session"""
@@ -55,6 +65,65 @@ class TwitterBot:
             logging.info("✅ Groq client initialized successfully.")
         except Exception as e:
             logging.error(f"❌ Failed to initialize Groq client: {e}")
+
+    def setup_sheet(self):
+        """Setup Google Sheets connection."""
+        try:
+            google_creds_json = os.getenv("GOOGLE_CREDS_JSON")
+            if not google_creds_json or not SHEET_ID:
+                logging.error("❌ Missing Google Sheets credentials or sheet ID.")
+                return
+
+            creds_dict = json.loads(google_creds_json)
+            creds = Credentials.from_service_account_info(
+                creds_dict,
+                scopes=[
+                    "https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive",
+                ],
+            )
+            client = gspread.authorize(creds)
+            self.sheet = client.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
+            logging.info("✅ Google Sheet connected successfully.")
+        except Exception as e:
+            logging.error(f"❌ Failed to connect to Google Sheet: {e}")
+
+    def mark_posted(self, topic, tweet_content, tweet_id=None):
+        """Append a log row: [YYYY-MM-DD, Topic, TweetContent, TweetID]"""
+        if not self.sheet:
+            return
+        today = datetime.date.today().isoformat()
+        try:
+            self.sheet.append_row([today, topic, tweet_content, tweet_id or ""])
+            logging.info("📝 Post logged to Google Sheet.")
+        except Exception as e:
+            logging.error(f"❌ Error logging post to Google Sheet: {e}")
+
+    def already_posted_topic(self, topic):
+        """Check if the same topic has been posted within the last 2 days."""
+        if not self.sheet:
+            return False
+        
+        try:
+            rows = self.sheet.get_all_values()[1:]  # skip header
+            today = datetime.date.today()
+            two_days_ago = today - datetime.timedelta(days=2)
+            
+            for row in rows:
+                if len(row) < 2:
+                    continue
+                try:
+                    post_date = parser.parse(row[0]).date()
+                except Exception:
+                    continue
+                
+                posted_topic = row[1]
+                if post_date >= two_days_ago and posted_topic == topic:
+                    return True
+            return False
+        except Exception as e:
+            logging.error(f"❌ Error checking for posted topics: {e}")
+            return False
 
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
@@ -116,7 +185,7 @@ class TwitterBot:
 
         try:
             response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",  # ✅ Recommended Groq model
+                model="llama-3.3-70b-versatile",
                 messages=[
                     {
                         "role": "system",
@@ -168,10 +237,10 @@ class TwitterBot:
         return tweet
 
     def post_tweet(self, tweet_text):
-        """Post tweet to Twitter"""
+        """Post tweet to Twitter and return the tweet ID"""
         if not self.oauth or not tweet_text:
             logging.error("❌ Cannot post tweet. Missing OAuth or tweet text.")
-            return False
+            return None
 
         payload = {"text": tweet_text}
 
@@ -183,21 +252,21 @@ class TwitterBot:
                 self.posted_tweets.add(tweet_text)
                 logging.info(f"✅ Tweet posted successfully! ID: {tweet_id}")
                 logging.info(f"📝 Content: {tweet_text}")
-                return True
+                return tweet_id
             else:
                 logging.error(f"❌ Twitter API error: {response.status_code}")
                 logging.error(f"Response: {response.text}")
-                return False
+                return None
 
         except requests.exceptions.RequestException as e:
             logging.error(f"❌ Network error posting tweet: {e}")
-            return False
+            return None
         except Exception as e:
             logging.error(f"❌ Unexpected error posting tweet: {e}")
-            return False
+            return None
 
     def generate_and_post(self, schedule_time):
-        """Generate and post a tweet"""
+        """Generate and post a tweet, checking for recent topics."""
         logging.info(f"➡️ Generating tweet for schedule: {schedule_time}")
 
         topics_str = os.environ.get('TOPICS')
@@ -225,11 +294,25 @@ class TwitterBot:
             "Deployment of Machine Learning Models"
         ]
 
-        topic = random.choice(topics)
-        tweet_text = self.generate_tweet_with_groq(topic)
+        # Use Google Sheets to pick a topic not used in the last 2 days
+        selected_topic = None
+        random.shuffle(topics)
+        for t in topics:
+            if not self.already_posted_topic(t):
+                selected_topic = t
+                break
+        
+        if not selected_topic:
+            selected_topic = random.choice(topics)
+            logging.warning("⚠️ All topics recently posted. Picking a random one.")
 
-        if tweet_text and self.post_tweet(tweet_text):
-            return tweet_text
+        tweet_text = self.generate_tweet_with_groq(selected_topic)
+
+        if tweet_text:
+            tweet_id = self.post_tweet(tweet_text)
+            if tweet_id:
+                self.mark_posted(selected_topic, tweet_text, tweet_id)
+                return tweet_text
         else:
             logging.error(f"❌ Failed to generate or post tweet for {schedule_time}")
             return None
