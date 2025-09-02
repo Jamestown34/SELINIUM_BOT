@@ -2,3 +2,16 @@ requests==2.32.3
 schedule==1.2.1
 requests-oauthlib==2.0.0
 groq
+requests
+requests-oauthlib
+schedule==1.2.1
+groq
+gspread
+google-auth
+requests==2.32.3
+gspread==6.1.2
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+google-api-python-client==2.151.0
+python-dateutil==2.9.0
