@@ -6,7 +6,7 @@ import json
 import schedule
 import requests
 from requests_oauthlib import OAuth1Session
-from datetime import datetime
+from datetime import datetime, date, timedelta  # Corrected import statement
 import re
 from groq import Groq
 import gspread
@@ -92,7 +92,8 @@ class TwitterBot:
         """Append a log row: [YYYY-MM-DD, Topic, TweetContent, TweetID]"""
         if not self.sheet:
             return
-        today = datetime.date.today().isoformat()
+        # This line is now correct, using date.today() from the datetime module
+        today = date.today().isoformat()
         try:
             self.sheet.append_row([today, topic, tweet_content, tweet_id or ""])
             logging.info("📝 Post logged to Google Sheet.")
@@ -106,8 +107,10 @@ class TwitterBot:
         
         try:
             rows = self.sheet.get_all_values()[1:]  # skip header
-            today = datetime.date.today()
-            two_days_ago = today - datetime.timedelta(days=2)
+            # This line is now correct, using date.today() from the datetime module
+            today = date.today()
+            # This line is now correct, using timedelta from the datetime module
+            two_days_ago = today - timedelta(days=2)
             
             for row in rows:
                 if len(row) < 2:
