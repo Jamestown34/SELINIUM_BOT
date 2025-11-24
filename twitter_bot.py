@@ -199,12 +199,12 @@ class TwitterBot:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a business-focused data analyst who writes concise, human-like Twitter posts. 
-                                    Your goal is to demonstrate practical business value in areas like retail, inventory, transport, forecasting, sales, and operations. 
-                                    Write insights that attract employers and people who need data analysis services. 
-                                    Avoid teaching beginners. Avoid technical lectures. Focus on business impact. 
-                                    Return only the tweet content, no hashtags, no explanations."
-                    },
+                        "content": """You are a business-focused data analyst who writes concise, human-like Twitter posts.
+Your goal is to demonstrate practical business value in areas like retail, inventory, transport, forecasting, sales, and operations.
+Write insights that attract employers and people who need data analysis services.
+Avoid teaching beginners. Avoid technical lectures. Focus on business impact.
+Return only the tweet content, no hashtags, no explanations."""
+},
                     {
                         "role": "user",
                         "content": prompt
