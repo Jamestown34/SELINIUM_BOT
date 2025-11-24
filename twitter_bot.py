@@ -142,7 +142,7 @@ class TwitterBot:
         text = text.strip('"\' \n')
 
         if '#' not in text and random.random() < 0.3:
-            hashtags = ['#DataScience', '#Analytics', '#DemandForecasting', '#BigData',
+            hashtags = ['#DataScience', '#Analytics', '#DemandForecasting',
                         '#FleetOptimization', '#BusinessIntelligence', '#RetailAnalytics', '#InventoryManagement', '#SupplyChain', '#DataAnalytics']
             text += f" {random.choice(hashtags)}"
 
@@ -163,23 +163,16 @@ class TwitterBot:
         tweet_styles_str = os.environ.get('TWEET_STYLES')
         tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
             "Here's a quick insight about {topic} that can save a business money or time.",
-            "Most teams overlook {topic}. Here's the practical impact.",
-            "A simple data insight on {topic} that managers should know.",
-            "If you're trying to improve {topic}, focus on this key detail.",
-            "One thing I've learned about {topic} that changes everything.",
-            "A real-world example of how {topic} improves operations.",
-            "The fastest way to fix issues with {topic}? Start here.",
-            "Companies underestimate the value of {topic}. Here's why it matters.",
-            "If you want to optimize {topic}, this small change has a big impact.",
-            "What {topic} reveals about business performance might surprise you.",
-            "Most companies get {topic} wrong. Here's a simple way to fix it.",
-            "A practical, actionable tip about {topic} that managers should know.",
-            "If you want to optimize {topic}, focus on this key metric.",
-            "How {topic} can reveal hidden inefficiencies in your business.",
-            "Quick insight: {topic} can improve operations when done right.",
-            "A real-world example of {topic} increasing revenue or reducing costs.",
-            "If your team struggles with {topic}, this tiny shift can make a big difference.",
-            "The business impact of {topic} is often overlooked. Here's why it matters.",
+            "From my experience, {topic} led to measurable improvements in operations.",
+            "I’ve seen firsthand how {topic} can reduce costs or improve efficiency.",
+            "In one project, focusing on {topic} helped achieve tangible results.",
+            "Managing {topic} taught me a simple yet powerful lesson.",
+            "While analyzing {topic}, I noticed a key pattern that made a real difference.",
+            "Through practical experience, optimizing {topic} often results in significant gains.",
+            "One insight from working with {topic}: small adjustments can have big impact.",
+            "I found that careful attention to {topic} can save time and money.",
+            "Real-world experience shows that {topic} directly affects performance and outcomes.",
+            "During past projects, improving {topic} led to measurable success."
             "How data on {topic} helps companies make smarter decisions."
         ]
 
@@ -188,7 +181,7 @@ class TwitterBot:
         prompt = (
             f"Write a concise Twitter post about {topic}. {selected_style} "
             f"Requirements: Under 280 characters, business-focused, practical, and impactful. "
-            f"Don't include hashtags unless specifically relevant. Just return the tweet text, nothing else."
+            f"Keep it authentic and experience-driven. Don't include hashtags unless specifically relevant. Just return the tweet text, nothing else."
         )
 
         logging.info(f"🧠 Generating tweet for topic: {topic} using Groq client.")
@@ -199,10 +192,10 @@ class TwitterBot:
                 messages=[
                     {
                         "role": "system",
-                        "content": """You are a business-focused data analyst who writes concise, human-like Twitter posts.
-Your goal is to demonstrate practical business value in areas like retail, inventory, transport, forecasting, sales, and operations.
-Write insights that attract employers and people who need data analysis services.
-Avoid teaching beginners. Avoid technical lectures. Focus on business impact.
+                       "content": """You are a business-focused data analyst who writes concise, human-like Twitter posts.
+Write tweets as if they are drawn from real experience, include outcomes, insights, or lessons learned.
+Focus on practical business impact in areas like retail, inventory, transport, forecasting, sales, and operations.
+Avoid generic advice or beginner tutorials. Avoid teaching. Avoid technical lectures.
 Return only the tweet content, no hashtags, no explanations."""
 },
                     {
