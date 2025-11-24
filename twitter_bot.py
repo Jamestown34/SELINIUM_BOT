@@ -110,7 +110,7 @@ class TwitterBot:
             # This line is now correct, using date.today() from the datetime module
             today = date.today()
             # This line is now correct, using timedelta from the datetime module
-            two_days_ago = today - timedelta(days=2)
+            two_days_ago = today - timedelta(days=4)
             
             for row in rows:
                 if len(row) < 2:
@@ -131,7 +131,9 @@ class TwitterBot:
     def clean_tweet_text(self, text):
         """Clean and format tweet text"""
         text = re.sub(
-            r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:|Here is your tweet:|Here\'s a tweet for you:)',
+            r'^(Here\'s|Here is|Tweet:|Thought:|Here\'s a thought:|Quick thought:|Check out this insight:|'
+            r'Here is your tweet:|Here\'s a tweet for you:|Insight:|Note:|Observation:|Quick tip:|'
+            r'Pro tip:|Reminder:|Hot take:|Real talk:)',
             '',
             text,
             flags=re.IGNORECASE
@@ -140,8 +142,8 @@ class TwitterBot:
         text = text.strip('"\' \n')
 
         if '#' not in text and random.random() < 0.3:
-            hashtags = ['#DataScience', '#Analytics', '#MachineLearning', '#BigData',
-                        '#Python', '#SQL', '#TechTips', '#AI', '#DeepLearning', '#DataAnalytics']
+            hashtags = ['#DataScience', '#Analytics', '#DemandForecasting', '#BigData',
+                        '#FleetOptimization', '#BusinessIntelligence', '#RetailAnalytics', '#InventoryManagement', '#SupplyChain', '#DataAnalytics']
             text += f" {random.choice(hashtags)}"
 
         if len(text) > 280:
@@ -160,27 +162,32 @@ class TwitterBot:
 
         tweet_styles_str = os.environ.get('TWEET_STYLES')
         tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
-            "Share a practical tip about {topic} that beginners can apply immediately.",
-            "What's the most common mistake people make with {topic}? Share the solution.",
-            "Explain {topic} in one sentence that a 5-year-old could understand.",
-            "Hot take: {topic} is overrated/underrated because...",
-            "If you could only know one thing about {topic}, it should be this:",
-            "Quick reminder: {topic} doesn't have to be complicated. Here's how:",
-            "Unpopular opinion about {topic}:",
-            "The best free resource for learning {topic} is...",
-            "Real talk: {topic} changed how I think about data. Here's why:",
-            "Tell me something surprising about {topic}.",
-            "What's a common misconception about {topic}?",
-            "How can {topic} be applied in everyday life?",
-            "The future of {topic} is...",
-            "If you're struggling with {topic}, try this simple approach:"
+            "Here's a quick insight about {topic} that can save a business money or time.",
+            "Most teams overlook {topic}. Here's the practical impact.",
+            "A simple data insight on {topic} that managers should know.",
+            "If you're trying to improve {topic}, focus on this key detail.",
+            "One thing I've learned about {topic} that changes everything.",
+            "A real-world example of how {topic} improves operations.",
+            "The fastest way to fix issues with {topic}? Start here.",
+            "Companies underestimate the value of {topic}. Here's why it matters.",
+            "If you want to optimize {topic}, this small change has a big impact.",
+            "What {topic} reveals about business performance might surprise you.",
+            "Most companies get {topic} wrong. Here's a simple way to fix it.",
+            "A practical, actionable tip about {topic} that managers should know.",
+            "If you want to optimize {topic}, focus on this key metric.",
+            "How {topic} can reveal hidden inefficiencies in your business.",
+            "Quick insight: {topic} can improve operations when done right.",
+            "A real-world example of {topic} increasing revenue or reducing costs.",
+            "If your team struggles with {topic}, this tiny shift can make a big difference.",
+            "The business impact of {topic} is often overlooked. Here's why it matters.",
+            "How data on {topic} helps companies make smarter decisions."
         ]
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
 
         prompt = (
             f"Write a concise Twitter post about {topic}. {selected_style} "
-            f"Requirements: Under 280 characters, engaging, professional tone. "
+            f"Requirements: Under 280 characters, business-focused, practical, and impactful. "
             f"Don't include hashtags unless specifically relevant. Just return the tweet text, nothing else."
         )
 
@@ -192,7 +199,11 @@ class TwitterBot:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a data science expert who writes engaging, concise Twitter posts. Write only the tweet content, no additional text or explanations."
+                        "content": "You are a business-focused data analyst who writes concise, human-like Twitter posts. 
+                                    Your goal is to demonstrate practical business value in areas like retail, inventory, transport, forecasting, sales, and operations. 
+                                    Write insights that attract employers and people who need data analysis services. 
+                                    Avoid teaching beginners. Avoid technical lectures. Focus on business impact. 
+                                    Return only the tweet content, no hashtags, no explanations."
                     },
                     {
                         "role": "user",
@@ -225,13 +236,13 @@ class TwitterBot:
     def generate_fallback_tweet(self, topic):
         """Generate a simple fallback tweet when AI generation fails"""
         fallback_templates = [
-            f"Today's focus: {topic}. What's your experience been like?",
-            f"Quick question: What's the biggest challenge you face with {topic}?",
-            f"Reminder: {topic} doesn't have to be overwhelming. Start small, build up.",
-            f"Working on {topic} today. Any tips or resources you'd recommend?",
-            f"The more I learn about {topic}, the more fascinating it becomes.",
-            f"Just shared a thought on {topic}. What's your take?",
-            f"Exploring {topic} today. Any interesting insights you've found?"
+            f"{topic} can reveal operational inefficiencies faster than most teams expect.",
+            f"Many businesses overlook {topic}, yet it directly impacts cost, performance, and decision quality.",
+            f"Improving {topic} often leads to clearer insights and better resource allocation.",
+            f"Strong {topic} practices give companies a measurable advantage in planning and execution.",
+            f"When {topic} is optimized, teams make faster, more confident decisions.",
+            f"{topic} is one of the simplest ways to identify patterns that drive revenue or reduce waste.",
+            f"Companies underestimate how much {topic} can improve forecasting and day-to-day operations."
         ]
 
         tweet = random.choice(fallback_templates)
@@ -274,27 +285,36 @@ class TwitterBot:
 
         topics_str = os.environ.get('TOPICS')
         topics = json.loads(topics_str) if topics_str else [
-            "Data Pipeline Architecture",
-            "SQL Performance Optimization",
-            "Python Data Manipulation with Pandas",
-            "Machine Learning Feature Engineering",
-            "Data Visualization Best Practices",
-            "ETL vs ELT Processes",
-            "Database Indexing Strategies",
-            "API Integration for Data Collection",
-            "Data Quality Validation Techniques",
-            "Cloud Data Warehousing Solutions",
-            "Real-time Data Processing",
-            "Data Science Project Organization",
-            "Statistical Analysis in Business",
-            "Data Storytelling Techniques",
-            "Automated Reporting Systems",
-            "Big Data Technologies (Spark, Hadoop)",
-            "Data Governance and Ethics",
-            "Time Series Analysis",
-            "Natural Language Processing (NLP)",
-            "Computer Vision Basics",
-            "Deployment of Machine Learning Models"
+            "Identifying slow-moving products in retail",
+            "Finding silent losses in daily sales data",
+            "Forecasting demand for better purchasing decisions",
+            "Reducing stockout and overstock risks",
+            "Using ABC inventory analysis to improve cash flow",
+            "Detecting products that drain working capital",
+            "Predicting customer returns and fraud patterns",
+            "Reducing product expiry risks in pharmacies",
+            "Finding the most profitable customer segments",
+            "Analyzing why certain branches outperform others",
+            "Using data to understand fuel consumption in fleet vehicles",
+            "Cost-per-trip analysis for transport businesses",
+            "Identifying vehicles that consume too much fuel",
+            "Tracking driver behavior with operational data",
+            "Predictive maintenance for vehicles",
+            "Reducing logistics costs with data insights",
+            "Supplier performance analytics",
+            "Detecting unusual patterns in transactions",
+            "Reducing operational costs with simple data checks",
+            "Using KPIs to improve business performance",
+            "Finding profitable product categories with data",
+            "Using dashboards to reveal hidden inefficiencies",
+            "Customer churn early-warning signals",
+            "Sales forecasting for small businesses",
+            "Improving procurement compliance with data",
+            "Simple reporting automation for business teams",
+            "Detecting counterfeit stockout issues",
+            "Finding revenue leakages in inventory data",
+            "Understanding customer buying patterns with data",
+            "How small businesses can benefit from predictive analytics"
         ]
 
         # Use Google Sheets to pick a topic not used in the last 2 days
