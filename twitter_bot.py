@@ -162,18 +162,16 @@ class TwitterBot:
 
         tweet_styles_str = os.environ.get('TWEET_STYLES')
         tweet_styles = json.loads(tweet_styles_str) if tweet_styles_str else [
-            "Here's a quick insight about {topic} that can save a business money or time.",
-            "From my experience, {topic} led to measurable improvements in operations.",
-            "I’ve seen firsthand how {topic} can reduce costs or improve efficiency.",
-            "In one project, focusing on {topic} helped achieve tangible results.",
-            "Managing {topic} taught me a simple yet powerful lesson.",
-            "While analyzing {topic}, I noticed a key pattern that made a real difference.",
-            "Through practical experience, optimizing {topic} often results in significant gains.",
-            "One insight from working with {topic}: small adjustments can have big impact.",
-            "I found that careful attention to {topic} can save time and money.",
-            "Real-world experience shows that {topic} directly affects performance and outcomes.",
-            "During past projects, improving {topic} led to measurable success."
-            "How data on {topic} helps companies make smarter decisions."
+            "I saw firsthand that {topic} led to measurable improvements in operations.",
+            "From my experience, {topic} helped reduce costs and improve efficiency.",
+            "In one project, focusing on {topic} delivered tangible results.",
+            "While managing {topic}, I discovered a key insight that improved performance.",
+            "Through practical experience, optimizing {topic} often leads to big gains.",
+            "One lesson I learned about {topic}: small adjustments can have significant impact.",
+            "Working with {topic} taught me how to save time, resources, and costs.",
+            "Experience shows that {topic} directly affects decision-making and outcomes.",
+            "I’ve found that prioritizing {topic} uncovers hidden inefficiencies.",
+            "During past projects, improving {topic} delivered measurable business success."
         ]
 
         selected_style = random.choice(tweet_styles).format(topic=topic)
@@ -278,36 +276,20 @@ Return only the tweet content, no hashtags, no explanations."""
 
         topics_str = os.environ.get('TOPICS')
         topics = json.loads(topics_str) if topics_str else [
-            "Identifying slow-moving products in retail",
-            "Finding silent losses in daily sales data",
-            "Forecasting demand for better purchasing decisions",
-            "Reducing stockout and overstock risks",
-            "Using ABC inventory analysis to improve cash flow",
-            "Detecting products that drain working capital",
-            "Predicting customer returns and fraud patterns",
-            "Reducing product expiry risks in pharmacies",
-            "Finding the most profitable customer segments",
-            "Analyzing why certain branches outperform others",
-            "Using data to understand fuel consumption in fleet vehicles",
-            "Cost-per-trip analysis for transport businesses",
-            "Identifying vehicles that consume too much fuel",
-            "Tracking driver behavior with operational data",
-            "Predictive maintenance for vehicles",
-            "Reducing logistics costs with data insights",
-            "Supplier performance analytics",
-            "Detecting unusual patterns in transactions",
-            "Reducing operational costs with simple data checks",
-            "Using KPIs to improve business performance",
-            "Finding profitable product categories with data",
-            "Using dashboards to reveal hidden inefficiencies",
-            "Customer churn early-warning signals",
-            "Sales forecasting for small businesses",
-            "Improving procurement compliance with data",
-            "Simple reporting automation for business teams",
-            "Detecting counterfeit stockout issues",
-            "Finding revenue leakages in inventory data",
-            "Understanding customer buying patterns with data",
-            "How small businesses can benefit from predictive analytics"
+            "Reducing stockouts and overstock by tracking days of stock on hand",
+            "Optimizing transport costs through cost-per-trip and route analysis",
+            "Analyzing sales data to uncover slow-moving products",
+            "Predicting customer returns to prevent revenue loss",
+            "Tracking fleet performance and vehicle utilization for cost savings",
+            "Improving supplier performance using data insights",
+            "Forecasting demand to improve purchasing decisions",
+            "Identifying hidden inefficiencies in operations dashboards",
+            "Early warning signals for customer churn",
+            "Using inventory ABC analysis to free up working capital",
+            "Optimizing delivery schedules to reduce operational costs",
+            "Analyzing pricing strategies to increase profit margins",
+            "Monitoring key KPIs to improve business decision-making",
+            "Using historical sales data to improve forecast accuracy"
         ]
 
         # Use Google Sheets to pick a topic not used in the last 2 days
